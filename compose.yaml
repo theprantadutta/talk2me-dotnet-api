@@ -1,0 +1,7 @@
+﻿services:
+  talk2me-dotnet-api:
+    image: talk2me-dotnet-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+
