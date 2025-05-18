@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace talk2me_dotnet_api.Services;
 
@@ -14,6 +15,15 @@ public class MqttClientService : IHostedService
     private readonly ILogger<MqttClientService> _logger;
     private readonly IMqttClient _mqttClient;
     private readonly MqttClientOptions _options;
+    
+    // Track active subscriptions
+    private readonly List<string> _subscribedTopics = [];
+    
+    // // Track typing status (userId -> isTyping)
+    // private readonly ConcurrentDictionary<string, bool> _typingStatus = new();
+    //
+    // // Track group memberships (groupId -> List<userId>)
+    // private readonly ConcurrentDictionary<string, List<string>> _groups = new();
 
     public MqttClientService(ILogger<MqttClientService> logger)
     {
@@ -34,6 +44,79 @@ public class MqttClientService : IHostedService
         _mqttClient.ConnectedAsync += HandleConnectedAsync;
         _mqttClient.DisconnectedAsync += HandleDisconnectedAsync;
         _mqttClient.ApplicationMessageReceivedAsync += HandleMessageReceivedAsync;
+    }
+    
+    // public async Task SubscribeToUserTopic(string userId)
+    // {
+    //     var topic = $"user/{userId}";
+    //     await SubscribeToTopic(topic);
+    // }
+    //
+    // public async Task SubscribeToGroupTopic(string groupId)
+    // {
+    //     var topic = $"group/{groupId}";
+    //     await SubscribeToTopic(topic);
+    // }
+    //
+    // public async Task SubscribeToTypingTopic(string userId)
+    // {
+    //     var topic = $"typing/{userId}";
+    //     await SubscribeToTopic(topic);
+    // }
+    //
+    // public async Task SubscribeToGroupTypingTopic(string groupId)
+    // {
+    //     var topic = $"group/{groupId}/typing";
+    //     await SubscribeToTopic(topic);
+    // }
+
+    private async Task SubscribeToTopic(string topic)
+    {
+        if (_subscribedTopics.Contains(topic)) return;
+        
+        await _mqttClient.SubscribeAsync(topic);
+        _subscribedTopics.Add(topic);
+        _logger.LogInformation("Subscribed to topic: {Topic}", topic);
+    }
+
+    public async Task SendUserMessage(string recipientId, string senderId, string content)
+    {
+        var topic = $"user/{recipientId}";
+        await PublishAsync(topic, content, senderId);
+    }
+
+    public async Task SendGroupMessage(string groupId, string senderId, string content)
+    {
+        var topic = $"group/{groupId}";
+        await PublishAsync(topic, content, senderId);
+    }
+
+    public async Task SendTypingIndicator(string recipientId, string senderId, bool isTyping)
+    {
+        var topic = $"typing/{recipientId}"; // Separate typing topic
+        var message = new 
+        {
+            SenderId = senderId,
+            IsTyping = isTyping,
+            Timestamp = DateTime.UtcNow
+        };
+    
+        // Console.WriteLine($"SenderId {senderId} Typing Status: {isTyping}");
+        await PublishAsync(topic, JsonSerializer.Serialize(message), senderId, "typing");
+    }
+
+    public async Task SendGroupTypingIndicator(string groupId, string senderId, bool isTyping)
+    {
+        var topic = $"group/{groupId}/typing"; // Separate group typing topic
+        var message = new 
+        {
+            SenderId = senderId,
+            IsTyping = isTyping,
+            Timestamp = DateTime.UtcNow
+        };
+    
+        Console.WriteLine($"GroupID {groupId}, SenderId {senderId} Typing Status: {isTyping}");
+        await PublishAsync(topic, JsonSerializer.Serialize(message), senderId, "typing");
     }
 
     private async Task HandleConnectedAsync(MqttClientConnectedEventArgs arg)
@@ -87,8 +170,8 @@ public class MqttClientService : IHostedService
             new MqttClientDisconnectOptions { ReasonString = "Shutting down" },
             cancellationToken);
     }
-    
-    public async Task PublishAsync(string topic, string content, string userId, string clientType = "webapi")
+
+    private async Task PublishAsync(string topic, string content, string userId, string clientType = "webapi")
     {
         if (!_mqttClient.IsConnected)
         {
