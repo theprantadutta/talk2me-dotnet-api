@@ -1,8 +1,12 @@
+using Serilog;
 using talk2me_dotnet_api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+builder.Host.UseSerilog(
+    (context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration)
+);
+
 
 builder.Services.AddControllers();
 
@@ -20,7 +24,8 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// Add Serilog Request Logging
+app.UseSerilogRequestLogging();
 
 app.UseHttpsRedirection();
 

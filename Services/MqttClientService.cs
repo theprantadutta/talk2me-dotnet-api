@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace talk2me_dotnet_api.Services;
 
@@ -15,166 +14,140 @@ public class MqttClientService : IHostedService
     private readonly ILogger<MqttClientService> _logger;
     private readonly IMqttClient _mqttClient;
     private readonly MqttClientOptions _options;
-    
-    // Track active subscriptions
-    private readonly List<string> _subscribedTopics = [];
-    
-    // // Track typing status (userId -> isTyping)
-    // private readonly ConcurrentDictionary<string, bool> _typingStatus = new();
-    //
-    // // Track group memberships (groupId -> List<userId>)
-    // private readonly ConcurrentDictionary<string, List<string>> _groups = new();
 
     public MqttClientService(ILogger<MqttClientService> logger)
     {
-        _logger = logger;
-        
-        // Create MQTT client
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        _logger.LogInformation("Initializing MqttClientService...");
+
         var factory = new MqttClientFactory();
         _mqttClient = factory.CreateMqttClient();
-        
-        // Configure options
+        _logger.LogInformation("MQTT client created");
+
         _options = new MqttClientOptionsBuilder()
-            .WithTcpServer("broker.hivemq.com") // Public broker for testing
+            .WithTcpServer("broker.hivemq.com")
             .WithClientId($"dotnet_client_{Guid.NewGuid()}")
             .WithCleanSession()
             .Build();
-            
-        // Setup event handlers
+        _logger.LogInformation("MQTT client options configured: Server={Server}, ClientId={ClientId}", 
+            "broker.hivemq.com", _options.ClientId);
+
         _mqttClient.ConnectedAsync += HandleConnectedAsync;
         _mqttClient.DisconnectedAsync += HandleDisconnectedAsync;
         _mqttClient.ApplicationMessageReceivedAsync += HandleMessageReceivedAsync;
     }
-    
-    // public async Task SubscribeToUserTopic(string userId)
-    // {
-    //     var topic = $"user/{userId}";
-    //     await SubscribeToTopic(topic);
-    // }
-    //
-    // public async Task SubscribeToGroupTopic(string groupId)
-    // {
-    //     var topic = $"group/{groupId}";
-    //     await SubscribeToTopic(topic);
-    // }
-    //
-    // public async Task SubscribeToTypingTopic(string userId)
-    // {
-    //     var topic = $"typing/{userId}";
-    //     await SubscribeToTopic(topic);
-    // }
-    //
-    // public async Task SubscribeToGroupTypingTopic(string groupId)
-    // {
-    //     var topic = $"group/{groupId}/typing";
-    //     await SubscribeToTopic(topic);
-    // }
-
-    private async Task SubscribeToTopic(string topic)
-    {
-        if (_subscribedTopics.Contains(topic)) return;
-        
-        await _mqttClient.SubscribeAsync(topic);
-        _subscribedTopics.Add(topic);
-        _logger.LogInformation("Subscribed to topic: {Topic}", topic);
-    }
 
     public async Task SendUserMessage(string recipientId, string senderId, string content)
     {
-        var topic = $"user/{recipientId}";
-        await PublishAsync(topic, content, senderId);
+        _logger.LogInformation("Sending user message: To={RecipientId}, From={SenderId}", recipientId, senderId);
+        await PublishAsync($"user/{recipientId}", content, senderId);
     }
 
     public async Task SendGroupMessage(string groupId, string senderId, string content)
     {
-        var topic = $"group/{groupId}";
-        await PublishAsync(topic, content, senderId);
+        _logger.LogInformation("Sending group message: GroupId={GroupId}, From={SenderId}", groupId, senderId);
+        await PublishAsync($"group/{groupId}", content, senderId);
     }
 
     public async Task SendTypingIndicator(string recipientId, string senderId, bool isTyping)
     {
-        var topic = $"typing/{recipientId}"; // Separate typing topic
+        var topic = $"typing/{recipientId}";
         var message = new 
         {
             SenderId = senderId,
             IsTyping = isTyping,
             Timestamp = DateTime.UtcNow
         };
-    
-        // Console.WriteLine($"SenderId {senderId} Typing Status: {isTyping}");
-        await PublishAsync(topic, JsonSerializer.Serialize(message), senderId, "typing");
+
+        _logger.LogInformation("Sending typing indicator: To={RecipientId}, From={SenderId}, IsTyping={IsTyping}", 
+            recipientId, senderId, isTyping);
+
+        await PublishAsync(topic, message, senderId, "typing");
     }
 
     public async Task SendGroupTypingIndicator(string groupId, string senderId, bool isTyping)
     {
-        var topic = $"group/{groupId}/typing"; // Separate group typing topic
+        var topic = $"group/{groupId}/typing";
         var message = new 
         {
+            GroupId = groupId,
             SenderId = senderId,
             IsTyping = isTyping,
             Timestamp = DateTime.UtcNow
         };
-    
-        Console.WriteLine($"GroupID {groupId}, SenderId {senderId} Typing Status: {isTyping}");
-        await PublishAsync(topic, JsonSerializer.Serialize(message), senderId, "typing");
+
+        _logger.LogInformation("Sending group typing indicator: GroupId={GroupId}, SenderId={SenderId}, IsTyping={IsTyping}", 
+            groupId, senderId, isTyping);
+
+        await PublishAsync(topic, message, senderId, "typing");
     }
 
-    private async Task HandleConnectedAsync(MqttClientConnectedEventArgs arg)
+    private Task HandleConnectedAsync(MqttClientConnectedEventArgs arg)
     {
-        _logger.LogInformation("MQTT client connected");
-        
-        // Subscribe to a topic
-        await _mqttClient.SubscribeAsync("flutter/demo");
+        _logger.LogInformation("MQTT client connected successfully");
+        return Task.CompletedTask;
     }
 
     private async Task HandleDisconnectedAsync(MqttClientDisconnectedEventArgs arg)
     {
-        _logger.LogInformation("MQTT client disconnected");
+        _logger.LogWarning("MQTT client disconnected. Attempting to reconnect in 5 seconds...");
         await Task.Delay(TimeSpan.FromSeconds(5));
-        
+
         try
         {
             await _mqttClient.ConnectAsync(_options);
+            _logger.LogInformation("Reconnected to MQTT broker successfully.");
         }
-        catch
+        catch (Exception ex)
         {
-            _logger.LogError("Reconnection failed");
+            _logger.LogError(ex, "MQTT reconnection attempt failed.");
         }
     }
 
     private Task HandleMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs arg)
     {
-        _logger.LogInformation("Received message on topic {ApplicationMessageTopic}", arg.ApplicationMessage.Topic);
+        var topic = arg.ApplicationMessage.Topic;
         var payload = Encoding.UTF8.GetString(arg.ApplicationMessage.Payload);
-        _logger.LogInformation("Message: {Payload}", payload);
+
+        _logger.LogInformation("Message received: Topic={Topic}, Payload={Payload}", topic, payload);
         return Task.CompletedTask;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting MQTT client");
+        _logger.LogInformation("Starting MQTT client service...");
+
         try
         {
             await _mqttClient.ConnectAsync(_options, cancellationToken);
+            _logger.LogInformation("MQTT client connected to broker.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error connecting to MQTT broker");
+            _logger.LogError(ex, "Failed to connect to MQTT broker.");
         }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping MQTT client");
+        _logger.LogInformation("Stopping MQTT client service...");
+
         await _mqttClient.DisconnectAsync(
             new MqttClientDisconnectOptions { ReasonString = "Shutting down" },
             cancellationToken);
+
+        _logger.LogInformation("MQTT client disconnected.");
     }
 
-    private async Task PublishAsync(string topic, string content, string userId, string clientType = "webapi")
+    private async Task PublishAsync(string topic, object content, string userId, string clientType = "webapi")
     {
+        _logger.LogInformation("Preparing to publish message: Topic={Topic}, UserId={UserId}, ClientType={ClientType}", 
+            topic, userId, clientType);
+
         if (!_mqttClient.IsConnected)
         {
+            _logger.LogWarning("MQTT client not connected. Attempting to reconnect...");
             await _mqttClient.ConnectAsync(_options);
         }
 
@@ -188,7 +161,8 @@ public class MqttClientService : IHostedService
         };
 
         var json = JsonSerializer.Serialize(message);
-    
+        _logger.LogDebug("Serialized message: {Json}", json);
+
         var mqttMessage = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
             .WithPayload(json)
@@ -196,5 +170,6 @@ public class MqttClientService : IHostedService
             .Build();
 
         await _mqttClient.PublishAsync(mqttMessage);
+        _logger.LogInformation("Published message to topic: {Topic}", topic);
     }
 }
