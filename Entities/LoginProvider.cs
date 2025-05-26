@@ -6,18 +6,17 @@ public class LoginProvider
 {
     [Key]
     public int Id { get; set; }
-    
+
     [MaxLength(50)]
     public string Provider { get; set; } = null!;
-    
+
     [MaxLength(100)]
     public string ProviderId { get; set; } = null!;
-    
-    [MaxLength(50)]
-    public string UserId { get; set; } = null!;
+
+    public int UserId { get; set; }
     public User User { get; set; } = null!;
-    
+
     public DateTime CreatedAt { get; set; }
-    
+
     public DateTime UpdatedAt { get; set; }
 }

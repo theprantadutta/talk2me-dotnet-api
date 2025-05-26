@@ -1,6 +1,8 @@
 using Asp.Versioning;
 using DotNetEnv;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
+using talk2me_dotnet_api.Contexts;
 using talk2me_dotnet_api.Environments;
 using talk2me_dotnet_api.Interfaces;
 using talk2me_dotnet_api.Services;
@@ -25,9 +27,9 @@ var pgsqlSection = builder.Configuration.GetSection("PGSQL");
 builder.Services.Configure<PgsqlConfiguration>(pgsqlSection);
 
 // Add Postgres SQL Db Connection
-// builder.Services.AddDbContext<AppDbContext>(options =>
-//     options.UseNpgsql(pgsqlSection.GetValue<string>("CONNECTION_STRING"))
-// );
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(pgsqlSection.GetValue<string>("CONNECTION_STRING"))
+);
 
 // Adding API Versioning
 builder.Services.AddApiVersioning(setupAction =>
