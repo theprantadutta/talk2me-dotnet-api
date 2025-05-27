@@ -23,7 +23,7 @@ public class Message
     // Navigation properties
     public Conversation Conversation { get; set; } = null!;
     public User Sender { get; set; } = null!;
-    public ICollection<MessageRead> ReadBy { get; set; }
+    public ICollection<MessageRead> ReadBy { get; set; } = [];
 }
 
 public enum MessageType

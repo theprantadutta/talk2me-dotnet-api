@@ -10,6 +10,9 @@ public class User
     [MaxLength(50)]
     public string UniqueUserId { get; set; } = null!;
 
+    [MaxLength(500)]
+    public string FullName { get; set; } = null!;
+
     [MaxLength(50)]
     public string Username { get; set; } = null!;
 
